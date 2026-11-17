@@ -18,27 +18,12 @@ SERVER="$DOCMOST_DIR/apps/server/src"
 CLIENT="$DOCMOST_DIR/apps/client/src"
 
 echo "==> copying server source"
+# Whole directories, not a hand-written list: a file added here must never be
+# silently left out of the build.
 mkdir -p "$SERVER/core/template/dto" "$SERVER/integrations/daily-task"
-cp -v "$HERE/src/core/template/template.controller.ts" \
-      "$HERE/src/core/template/template.service.ts" \
-      "$HERE/src/core/template/template.module.ts" \
-      "$HERE/src/core/template/space-default-template.service.ts" \
-      "$HERE/src/core/template/space-default-template.interceptor.ts" \
-      "$SERVER/core/template/"
-cp -v "$HERE/src/core/template/dto/template.dto.ts" "$SERVER/core/template/dto/"
-cp -v "$HERE/src/integrations/daily-task/daily-task.service.ts" \
-      "$HERE/src/integrations/daily-task/daily-task.controller.ts" \
-      "$HERE/src/integrations/daily-task/daily-task.module.ts" \
-      "$HERE/src/integrations/daily-task/daily-task.util.ts" \
-      "$SERVER/integrations/daily-task/"
-for spec in "$HERE/src/core/template/space-default-template.interceptor.spec.ts" \
-            "$HERE/src/integrations/daily-task/daily-task.util.spec.ts"; do
-  [[ -f "$spec" ]] || continue
-  case "$spec" in
-    *core/template/*) cp -v "$spec" "$SERVER/core/template/" ;;
-    *) cp -v "$spec" "$SERVER/integrations/daily-task/" ;;
-  esac
-done
+cp -v "$HERE/src/core/template/"*.ts "$SERVER/core/template/"
+cp -v "$HERE/src/core/template/dto/"*.ts "$SERVER/core/template/dto/"
+cp -v "$HERE/src/integrations/daily-task/"*.ts "$SERVER/integrations/daily-task/"
 
 echo "==> copying client source"
 mkdir -p "$CLIENT/features/page-template/components"

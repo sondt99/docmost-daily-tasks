@@ -40,6 +40,9 @@ The rules:
 - **Unticked items move, ticked ones do not.** An open sub-task under a ticked
   parent still moves, so finishing the headline item does not silently bury
   what is left under it.
+- **A task keeps its own words.** An explanation written under a task travels
+  with it, separated by a space rather than run together, and a parent task
+  never swallows the text of the sub-tasks beneath it.
 - **Yesterday's plan lands first.** What the previous day wrote under
   *Dự kiến hôm sau* goes to the top of today's list, then the leftovers.
 - **Duplicates collapse.** An item that is both planned and unfinished appears
@@ -129,7 +132,27 @@ Open any page's `...` menu:
 ### What "default" does
 
 Once a space has a default template, creating a page there opens it already
-filled in. There is no second click and no picker.
+filled in, and named. There is no second click and no picker.
+
+The template's own title names the page, and a date placeholder in it becomes
+that day's date, so a template called `công việc ngày {dd/mm/yyyy}` makes a page
+called `công việc ngày 17/11/2026`. A title you type yourself always wins.
+
+| Placeholder | Becomes |
+|---|---|
+| `{date}`, `{yyyy-mm-dd}` | `2026-11-17` |
+| `{dd/mm/yyyy}` | `17/11/2026` |
+| `{dd-mm-yyyy}` | `17-11-2026` |
+| `{mm/yyyy}` | `11/2026` |
+| `{yyyy}`, `{mm}`, `{dd}` | the one part |
+| `{weekday}` | `Thứ Ba` |
+
+Case and spaces inside the braces do not matter. A name that is not on this
+list is left exactly as typed, rather than blanked: seeing `{DAYS}` in a page
+title tells you at once that nothing was substituted. The zone comes from
+`TEMPLATE_TITLE_TIMEZONE`, then `DAILY_TASK_TIMEZONE`, then
+`Asia/Ho_Chi_Minh`; the language of `{weekday}` from `TEMPLATE_TITLE_LOCALE`,
+default `vi-VN`.
 
 It works by filling in the request that the new-page button already sends,
 before the page is written, so Docmost builds the collaborative document from
@@ -144,8 +167,6 @@ Details worth knowing:
   from another template, the daily task pages below.
 - **Sub-pages are filled too.** A default is a property of the space, not of
   the top level.
-- **The title is never touched**, only the body, so a new page still opens with
-  an empty title waiting for you.
 - **A deleted template degrades to blank.** If the default is deleted, or the
   lookup fails for any reason, you get an ordinary empty page and a line in the
   server log. A failed click is never the outcome.

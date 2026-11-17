@@ -65,6 +65,44 @@ export function nodeText(node: PmNode): string {
   return node.content.map(nodeText).join('');
 }
 
+const LIST_TYPES = new Set(['taskList', 'bulletList', 'orderedList']);
+
+/** Text of one block, with a line break reading as a space. */
+function inlineText(node: PmNode): string {
+  if (!node) return '';
+  if (node.type === 'text') return node.text ?? '';
+  if (node.type === 'hardBreak') return ' ';
+  if (LIST_TYPES.has(node.type ?? '')) return '';
+  if (!Array.isArray(node.content)) return '';
+  return node.content.map(inlineText).join('');
+}
+
+/**
+ * The one line that represents a task item when it moves to the next day.
+ *
+ * Plain `nodeText` is wrong here on two counts. It reaches into nested lists,
+ * so an unfinished parent would drag its sub-tasks' words into its own line
+ * and those sub-tasks would then be carried a second time on their own. And it
+ * joins everything with nothing at all, so a task with an explanation under it
+ * came out as one run-on word: "Dung lai lab Frida" plus "vi ban 17 doi API"
+ * became "Dung lai lab Fridavi ban 17 doi API".
+ *
+ * So: blocks that belong to this item are joined with a space, a line break
+ * counts as a space, and anything inside a nested list is left to the item it
+ * belongs to.
+ */
+function taskLineText(node: PmNode): string {
+  if (!Array.isArray(node?.content)) return '';
+
+  return node.content
+    .filter((child) => !LIST_TYPES.has(child?.type ?? ''))
+    .map((child) => inlineText(child).trim())
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function headingText(node: PmNode): string | null {
   if (node?.type !== 'heading') return null;
   return nodeText(node).trim();
@@ -104,7 +142,7 @@ function collectUnchecked(node: PmNode): string[] {
 
   if (node.type === 'taskItem') {
     const checked = node.attrs?.checked === true;
-    const text = nodeText(node).trim();
+    const text = taskLineText(node);
     if (!checked && text) found.push(text);
     // A nested list inside a done item is intentionally still scanned, so a
     // sub-task left open under a ticked parent is not quietly dropped.

@@ -67,6 +67,113 @@ describe('working days', () => {
 });
 
 describe('carrying tasks forward', () => {
+  it('keeps a task and its explanation apart instead of running them together', () => {
+    const doc = {
+      type: 'doc',
+      content: [
+        heading('Task hôm nay'),
+        {
+          type: 'taskList',
+          content: [
+            {
+              type: 'taskItem',
+              attrs: { checked: false },
+              content: [
+                { type: 'paragraph', content: [{ type: 'text', text: 'Dựng lại lab Frida' }] },
+                { type: 'paragraph', content: [{ type: 'text', text: 'vì bản 17 đổi API' }] },
+              ],
+            },
+          ],
+        },
+        heading('Dự kiến hôm sau'),
+        { type: 'taskList', content: [] },
+      ],
+    };
+
+    expect(uncheckedTasksBySection(doc as any)['Task hôm nay']).toEqual([
+      'Dựng lại lab Frida vì bản 17 đổi API',
+    ]);
+  });
+
+  it('reads a soft line break as a space, not as nothing', () => {
+    const doc = {
+      type: 'doc',
+      content: [
+        heading('Task hôm nay'),
+        {
+          type: 'taskList',
+          content: [
+            {
+              type: 'taskItem',
+              attrs: { checked: false },
+              content: [
+                {
+                  type: 'paragraph',
+                  content: [
+                    { type: 'text', text: 'Gửi advisory' },
+                    { type: 'hardBreak' },
+                    { type: 'text', text: 'hạn thứ sáu' },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    expect(uncheckedTasksBySection(doc as any)['Task hôm nay']).toEqual([
+      'Gửi advisory hạn thứ sáu',
+    ]);
+  });
+
+  it('does not let an open parent swallow its sub-tasks', () => {
+    const doc = {
+      type: 'doc',
+      content: [
+        heading('Task hôm nay'),
+        {
+          type: 'taskList',
+          content: [
+            {
+              type: 'taskItem',
+              attrs: { checked: false },
+              content: [
+                { type: 'paragraph', content: [{ type: 'text', text: 'Audit app X' }] },
+                {
+                  type: 'taskList',
+                  content: [
+                    {
+                      type: 'taskItem',
+                      attrs: { checked: false },
+                      content: [
+                        { type: 'paragraph', content: [{ type: 'text', text: 'màn login' }] },
+                      ],
+                    },
+                    {
+                      type: 'taskItem',
+                      attrs: { checked: true },
+                      content: [
+                        { type: 'paragraph', content: [{ type: 'text', text: 'deeplink' }] },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+
+    // the parent keeps its own words, the open child comes along once,
+    // and the finished child stays behind
+    expect(uncheckedTasksBySection(doc as any)['Task hôm nay']).toEqual([
+      'Audit app X',
+      'màn login',
+    ]);
+  });
+
   const previousDay = doc(
     heading(DEFAULT_SECTIONS.today),
     taskList(['đã xong', true], ['chưa xong', false]),

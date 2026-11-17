@@ -72,9 +72,9 @@ export class SpaceDefaultTemplateService {
   async findDefaultContent(
     spaceId: string,
     workspaceId: string,
-  ): Promise<{ id: string; content: any } | null> {
-    const result = await sql<{ id: string; content: any }>`
-      SELECT t.id, t.content
+  ): Promise<{ id: string; title: string | null; content: any } | null> {
+    const result = await sql<{ id: string; title: string | null; content: any }>`
+      SELECT t.id, t.title, t.content
       FROM spaces s
       JOIN templates t
         ON t.id::text = s.settings->>'defaultTemplateId'

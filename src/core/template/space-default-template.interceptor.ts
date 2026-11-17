@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { SpaceDefaultTemplateService } from './space-default-template.service';
+import { renderTemplateTitle } from './template-title';
 
 /**
  * Should this request have the space's default template poured into it?
@@ -85,6 +86,17 @@ export class SpaceDefaultTemplateInterceptor implements NestInterceptor {
       if (template) {
         request.body.content = template.content;
         request.body.format = 'json';
+
+        // The template also names the page, which is how a daily page gets
+        // its date: a title of "công việc ngày {dd/mm/yyyy}" becomes today's.
+        // A title the caller typed always wins.
+        const typed =
+          typeof request.body.title === 'string'
+            ? request.body.title.trim()
+            : '';
+        if (!typed && template.title) {
+          request.body.title = renderTemplateTitle(template.title);
+        }
       }
     } catch (err) {
       // A blank page is a far better outcome than a failed click.
