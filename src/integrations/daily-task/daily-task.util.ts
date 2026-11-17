@@ -189,6 +189,99 @@ function cleanLine(line: string): string {
 }
 
 /**
+ * The one list of lines a day starts with: what yesterday planned for today,
+ * then what it did not finish, then anything standing.
+ *
+ * A task that was both planned and left unfinished is one task, so it is
+ * listed once. Shared by the cron and by a page made by hand, because a day
+ * made either way should open on the same list in the same order.
+ */
+export function mergeDailyItems(input: BuildDailyPageInput): string[] {
+  const lines = [
+    ...input.planned.map(cleanLine),
+    ...input.carriedOver.map(cleanLine),
+    ...(input.standing ?? []).map(cleanLine),
+  ].filter(Boolean);
+
+  const seen = new Set<string>();
+  return lines.filter((t) => {
+    const key = t.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
+ * Pours a day's open work into a template document.
+ *
+ * The cron builds its page from scratch; a page made by hand is built from
+ * the space's default template, and that template is the user's to shape. So
+ * rather than discarding it and substituting the cron's layout, this finds
+ * the template's own "today" section and fills its task list. Everything
+ * else in the template is left exactly as written.
+ *
+ * The document is rebuilt rather than edited in place: the caller's template
+ * is shared state read from the database, and mutating it would leak one
+ * page's tasks into the next page made from the same template.
+ *
+ * Returns the document unchanged when there is nothing to add, or when the
+ * template has no section by that name. A template that does not mention
+ * today has not opted into any of this, and quietly rearranging it would be
+ * the wrong kind of helpful.
+ */
+export function fillTemplateWithCarryOver(
+  doc: PmNode,
+  items: string[],
+  todayHeading: string,
+): PmNode {
+  if (!items.length) return doc;
+  if (!doc || !Array.isArray(doc.content)) return doc;
+
+  const wanted = todayHeading.trim();
+  if (!wanted) return doc;
+
+  const out: PmNode[] = [];
+  let section: 'before' | 'inside' | 'done' = 'before';
+  let filled = false;
+
+  for (const node of doc.content) {
+    const heading = headingText(node);
+
+    if (section === 'inside' && heading !== null) {
+      // The section ended without a task list of its own; give it one.
+      if (!filled) {
+        out.push(taskList(items));
+        filled = true;
+      }
+      section = 'done';
+    }
+
+    if (section === 'inside' && !filled && node?.type === 'taskList') {
+      out.push(taskList(items));
+      filled = true;
+      section = 'done';
+      continue;
+    }
+
+    out.push(node);
+
+    if (section === 'before' && heading !== null && heading === wanted) {
+      section = 'inside';
+    }
+  }
+
+  // The section was the last thing in the document.
+  if (section === 'inside' && !filled) {
+    out.push(taskList(items));
+    filled = true;
+  }
+
+  if (!filled) return doc;
+  return { ...doc, content: out };
+}
+
+/**
  * Builds the ProseMirror document for one day.
  *
  * This is assembled as JSON rather than as markdown on purpose: markdown
@@ -199,20 +292,7 @@ function cleanLine(line: string): string {
  */
 export function buildDailyDoc(input: BuildDailyPageInput): any {
   const s = input.sections ?? DEFAULT_SECTIONS;
-
-  const todayItems = [
-    ...input.planned.map(cleanLine),
-    ...input.carriedOver.map(cleanLine),
-    ...(input.standing ?? []).map(cleanLine),
-  ].filter(Boolean);
-
-  const seen = new Set<string>();
-  const deduped = todayItems.filter((t) => {
-    const key = t.toLowerCase();
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const deduped = mergeDailyItems(input);
 
   return {
     type: 'doc',

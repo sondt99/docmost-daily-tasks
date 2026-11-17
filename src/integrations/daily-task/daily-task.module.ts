@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { DailyTaskService } from './daily-task.service';
+import { DailyCarryOverService } from './daily-carry-over.service';
 import { DailyTaskController } from './daily-task.controller';
 import { PageModule } from '../../core/page/page.module';
 
@@ -13,7 +14,9 @@ import { PageModule } from '../../core/page/page.module';
 @Module({
   imports: [PageModule],
   controllers: [DailyTaskController],
-  providers: [DailyTaskService],
-  exports: [DailyTaskService],
+  providers: [DailyTaskService, DailyCarryOverService],
+  // The template interceptor fills a hand-made page the same way the cron
+  // fills the morning one, so it needs the same carry-over.
+  exports: [DailyTaskService, DailyCarryOverService],
 })
 export class DailyTaskModule {}

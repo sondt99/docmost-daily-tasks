@@ -8,6 +8,16 @@ import {
 import { Observable } from 'rxjs';
 import { SpaceDefaultTemplateService } from './space-default-template.service';
 import { renderTemplateTitle } from './template-title';
+import {
+  DailyCarryOverService,
+  dailySections,
+  dailyTimeZone,
+  isDailyTaskSpace,
+} from '../../integrations/daily-task/daily-carry-over.service';
+import {
+  fillTemplateWithCarryOver,
+  mergeDailyItems,
+} from '../../integrations/daily-task/daily-task.util';
 
 /**
  * Should this request have the space's default template poured into it?
@@ -54,7 +64,49 @@ export class SpaceDefaultTemplateInterceptor implements NestInterceptor {
 
   constructor(
     private readonly spaceDefaultTemplate: SpaceDefaultTemplateService,
+    private readonly carryOver: DailyCarryOverService,
   ) {}
+
+  /**
+   * In the space the daily-task cron was set up for, a page made by hand is a
+   * day's page too, so it opens on the same work the 06:00 page would have
+   * opened on: yesterday's plan for today, plus whatever was left unfinished.
+   *
+   * Without this the two ways of starting a day disagree, and the disagreement
+   * is worse than cosmetic. The cron skips a day it already has a page for, so
+   * clicking "new page" before 06:00 used to leave the morning page blank and
+   * silently cancel the carry-over for that day.
+   */
+  private async withCarriedWork(spaceId: string, content: any): Promise<any> {
+    if (!isDailyTaskSpace(spaceId)) return content;
+
+    const sections = dailySections();
+    const { carriedOver, planned } = await this.carryOver.gatherFromPreviousDay(
+      spaceId,
+      new Date(),
+      dailyTimeZone(),
+      sections,
+    );
+
+    const items = mergeDailyItems({ carriedOver, planned });
+    if (!items.length) return content;
+
+    const filled = fillTemplateWithCarryOver(content, items, sections.today);
+    if (filled === content) {
+      this.logger.warn(
+        `The default template for space ${spaceId} has no "${sections.today}" ` +
+          `section, so ${items.length} unfinished item(s) were not carried ` +
+          `into the new page. Rename the heading to match, or change ` +
+          `DAILY_TASK_SECTION_TODAY.`,
+      );
+      return content;
+    }
+
+    this.logger.log(
+      `Carried ${items.length} open item(s) into a page made by hand in space ${spaceId}`,
+    );
+    return filled;
+  }
 
   async intercept(
     context: ExecutionContext,
@@ -84,7 +136,10 @@ export class SpaceDefaultTemplateInterceptor implements NestInterceptor {
       );
 
       if (template) {
-        request.body.content = template.content;
+        request.body.content = await this.withCarriedWork(
+          request.body.spaceId,
+          template.content,
+        );
         request.body.format = 'json';
 
         // The template also names the page, which is how a daily page gets

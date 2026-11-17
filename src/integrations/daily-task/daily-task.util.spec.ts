@@ -2,8 +2,10 @@ import {
   DEFAULT_SECTIONS,
   nodeText,
   buildDailyDoc,
+  fillTemplateWithCarryOver,
   formatDate,
   isWorkingDay,
+  mergeDailyItems,
   previousWorkingDay,
   uncheckedTasksBySection,
 } from './daily-task.util';
@@ -285,5 +287,133 @@ describe('building the day', () => {
     const doc = buildDailyDoc({ planned: ['a'], carriedOver: ['b'] });
     const back = uncheckedTasksBySection(doc);
     expect(back[DEFAULT_SECTIONS.today]).toEqual(['a', 'b']);
+  });
+});
+
+describe('pouring a day of open work into a template', () => {
+  const h = (text: string) => ({
+    type: 'heading',
+    attrs: { level: 2 },
+    content: [{ type: 'text', text }],
+  });
+  const box = (text = '') => ({
+    type: 'taskItem',
+    attrs: { checked: false },
+    content: [
+      text
+        ? { type: 'paragraph', content: [{ type: 'text', text }] }
+        : { type: 'paragraph' },
+    ],
+  });
+  const list = (...items: any[]) => ({ type: 'taskList', content: items });
+
+  const template = () => ({
+    type: 'doc',
+    content: [
+      h('Task hôm nay'),
+      list(box()),
+      h('Dự kiến hôm sau'),
+      list(box()),
+      h('Ghi chú'),
+      { type: 'paragraph' },
+    ],
+  });
+
+  const texts = (doc: any, heading: string): string[] => {
+    const out: string[] = [];
+    let inside = false;
+    for (const node of doc.content) {
+      if (node.type === 'heading') {
+        inside = nodeText(node).trim() === heading;
+        continue;
+      }
+      if (inside && node.type === 'taskList') {
+        for (const item of node.content) out.push(nodeText(item).trim());
+      }
+    }
+    return out;
+  };
+
+  it('fills the today list and leaves the other sections alone', () => {
+    const filled = fillTemplateWithCarryOver(
+      template(),
+      ['viết blog', 'vá công cụ'],
+      'Task hôm nay',
+    );
+
+    expect(texts(filled, 'Task hôm nay')).toEqual(['viết blog', 'vá công cụ']);
+    expect(texts(filled, 'Dự kiến hôm sau')).toEqual(['']);
+    expect(filled.content[4]).toEqual(h('Ghi chú'));
+  });
+
+  it('does not alter the template it was given', () => {
+    // The template is shared state read from the database. Mutating it would
+    // leak one page's tasks into the next page made from the same template.
+    const original = template();
+    const copy = JSON.parse(JSON.stringify(original));
+    fillTemplateWithCarryOver(original, ['việc'], 'Task hôm nay');
+    expect(original).toEqual(copy);
+  });
+
+  it('leaves a template that has no such section exactly as it was', () => {
+    const other = {
+      type: 'doc',
+      content: [h('Biên bản họp'), { type: 'paragraph' }],
+    };
+    expect(fillTemplateWithCarryOver(other, ['việc'], 'Task hôm nay')).toBe(
+      other,
+    );
+  });
+
+  it('gives the section a list when it has none', () => {
+    const noList = {
+      type: 'doc',
+      content: [h('Task hôm nay'), h('Ghi chú'), { type: 'paragraph' }],
+    };
+    const filled = fillTemplateWithCarryOver(noList, ['việc'], 'Task hôm nay');
+    expect(texts(filled, 'Task hôm nay')).toEqual(['việc']);
+    expect(nodeText(filled.content[2]).trim()).toBe('Ghi chú');
+  });
+
+  it('handles the section being the last thing in the document', () => {
+    const trailing = { type: 'doc', content: [h('Task hôm nay')] };
+    const filled = fillTemplateWithCarryOver(trailing, ['việc'], 'Task hôm nay');
+    expect(texts(filled, 'Task hôm nay')).toEqual(['việc']);
+  });
+
+  it('returns the template untouched when there is nothing to carry', () => {
+    const t = template();
+    expect(fillTemplateWithCarryOver(t, [], 'Task hôm nay')).toBe(t);
+  });
+
+  it('survives a template that is not a document', () => {
+    expect(fillTemplateWithCarryOver(null as any, ['x'], 'T')).toBeNull();
+    expect(fillTemplateWithCarryOver({} as any, ['x'], 'T')).toEqual({});
+  });
+
+  it('lists a task that was both planned and unfinished only once', () => {
+    const items = mergeDailyItems({
+      planned: ['Bảo mật công cụ tra cứu'],
+      carriedOver: ['bảo mật công cụ tra cứu', 'việc khác'],
+    });
+    expect(items).toEqual(['Bảo mật công cụ tra cứu', 'việc khác']);
+  });
+
+  it('orders a hand-made day exactly like the cron orders one', () => {
+    const input = {
+      planned: ['đã hẹn'],
+      carriedOver: ['còn nợ'],
+      standing: ['việc thường ngày'],
+    };
+    const byHand = fillTemplateWithCarryOver(
+      template(),
+      mergeDailyItems(input),
+      'Task hôm nay',
+    );
+    const byCron = buildDailyDoc(input);
+
+    expect(texts(byHand, 'Task hôm nay')).toEqual(
+      texts(byCron, 'Task hôm nay'),
+    );
   });
 });

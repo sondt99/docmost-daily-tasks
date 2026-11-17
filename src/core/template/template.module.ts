@@ -5,6 +5,7 @@ import { TemplateService } from './template.service';
 import { SpaceDefaultTemplateService } from './space-default-template.service';
 import { SpaceDefaultTemplateInterceptor } from './space-default-template.interceptor';
 import { PageModule } from '../page/page.module';
+import { DailyTaskModule } from '../../integrations/daily-task/daily-task.module';
 
 @Module({
   controllers: [TemplateController],
@@ -21,6 +22,6 @@ import { PageModule } from '../page/page.module';
     },
   ],
   exports: [TemplateService, SpaceDefaultTemplateService],
-  imports: [PageModule],
+  imports: [PageModule, DailyTaskModule],
 })
 export class TemplateModule {}

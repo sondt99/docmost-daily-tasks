@@ -9,50 +9,23 @@ import { InjectKysely } from 'nestjs-kysely';
 import { KyselyDB } from '@docmost/db/types/kysely.types';
 import { PageService } from '../../core/page/services/page.service';
 import { sql } from 'kysely';
-import { renderTemplateTitle } from '../../core/template/template-title';
 import {
-  DEFAULT_SECTIONS,
   DailySections,
   buildDailyDoc,
-  formatDate,
   isWorkingDay,
-  previousWorkingDay,
-  uncheckedTasksBySection,
 } from './daily-task.util';
-
-/** How many working days back to look for the last daily page. */
-const LOOKBACK_DAYS = 5;
+import {
+  DEFAULT_TZ,
+  DailyCarryOverService,
+  dailySections,
+  dailyTitle,
+} from './daily-carry-over.service';
 
 const DEFAULT_CRON = '0 6 * * 1-5';
-const DEFAULT_TZ = 'Asia/Ho_Chi_Minh';
 const CRON_JOB_NAME = 'daily-task-page';
 
 function env(key: string, fallback = ''): string {
   return (process.env[key] ?? fallback).trim();
-}
-
-/**
- * The title of the page for one day.
- *
- * `DAILY_TASK_TITLE` takes the same date placeholders as a template title, so
- * the cron and a page made by hand from the space's default template can be
- * named the same way. That matters for more than looks: the carry-over finds
- * yesterday's page by its title, so if the two naming schemes drift apart, a
- * day written by hand is invisible to the next morning and its unfinished work
- * is quietly dropped.
- *
- * The default, `{date}`, is the plain `YYYY-MM-DD` this used to produce.
- */
-function dailyTitle(when: Date, tz: string): string {
-  const pattern = env('DAILY_TASK_TITLE') || '{date}';
-  const rendered = renderTemplateTitle(pattern, when, {
-    timeZone: tz,
-    locale: env('TEMPLATE_TITLE_LOCALE') || undefined,
-  }).trim();
-
-  // A pattern that renders to nothing would make every day share one blank
-  // title, and the "already exists" check would match the wrong page.
-  return rendered || formatDate(when, tz);
 }
 
 function envList(key: string): string[] {
@@ -75,6 +48,7 @@ export class DailyTaskService implements OnModuleInit, OnApplicationBootstrap {
     @InjectKysely() private readonly db: KyselyDB,
     private readonly pageService: PageService,
     private readonly schedulerRegistry: SchedulerRegistry,
+    private readonly carryOver: DailyCarryOverService,
   ) {}
 
   private get enabled(): boolean {
@@ -86,11 +60,7 @@ export class DailyTaskService implements OnModuleInit, OnApplicationBootstrap {
   }
 
   private get sections(): DailySections {
-    return {
-      today: env('DAILY_TASK_SECTION_TODAY', DEFAULT_SECTIONS.today),
-      tomorrow: env('DAILY_TASK_SECTION_TOMORROW', DEFAULT_SECTIONS.tomorrow),
-      notes: env('DAILY_TASK_SECTION_NOTES', DEFAULT_SECTIONS.notes),
-    };
+    return dailySections();
   }
 
   onModuleInit() {
@@ -239,15 +209,16 @@ export class DailyTaskService implements OnModuleInit, OnApplicationBootstrap {
 
     const title = dailyTitle(now, tz);
 
-    const existing = await this.findDailyPage(spaceId, title);
+    const existing = await this.carryOver.findDailyPage(spaceId, title);
     if (existing) {
       return { created: false, pageId: existing.id, reason: 'already exists' };
     }
 
-    const { carriedOver, planned } = await this.gatherFromPreviousDay(
+    const { carriedOver, planned } = await this.carryOver.gatherFromPreviousDay(
       spaceId,
       now,
       tz,
+      this.sections,
     );
 
     const doc = buildDailyDoc({
@@ -275,59 +246,4 @@ export class DailyTaskService implements OnModuleInit, OnApplicationBootstrap {
     return { created: true, pageId: page.id };
   }
 
-  /**
-   * Reads the most recent earlier daily page and splits its open items into
-   * what it planned for today and what it simply did not finish.
-   */
-  private async gatherFromPreviousDay(
-    spaceId: string,
-    now: Date,
-    tz: string,
-  ): Promise<{ carriedOver: string[]; planned: string[] }> {
-    const names = this.sections;
-    let cursor = now;
-
-    for (let i = 0; i < LOOKBACK_DAYS; i++) {
-      cursor = previousWorkingDay(cursor, tz);
-      const prevTitle = dailyTitle(cursor, tz);
-      const prev = await this.findDailyPage(spaceId, prevTitle, true);
-      if (!prev) continue;
-
-      const bySection = uncheckedTasksBySection((prev as any).content);
-      return {
-        carriedOver: bySection[names.today] ?? [],
-        planned: bySection[names.tomorrow] ?? [],
-      };
-    }
-
-    return { carriedOver: [], planned: [] };
-  }
-
-  /**
-   * Nothing stops two pages carrying the same day's name: clicking "new page"
-   * twice makes two, and both are legitimate. A `LIMIT 1` with no order would
-   * then return whichever row Postgres reached first, which changes as rows
-   * are edited and moved. Tomorrow's carry-over would read a page at random,
-   * and reading the empty one loses a day of work with nothing in the log.
-   *
-   * The most recently edited page is the one that was actually worked in.
-   */
-  private async findDailyPage(
-    spaceId: string,
-    title: string,
-    withContent = false,
-  ) {
-    let query = this.db
-      .selectFrom('pages')
-      .select(['id', 'title'])
-      .where('spaceId', '=', spaceId)
-      .where('title', '=', title)
-      .where('deletedAt', 'is', null)
-      .orderBy('updatedAt', 'desc')
-      .orderBy('createdAt', 'desc');
-
-    if (withContent) query = query.select('content') as any;
-
-    return query.executeTakeFirst();
-  }
 }
