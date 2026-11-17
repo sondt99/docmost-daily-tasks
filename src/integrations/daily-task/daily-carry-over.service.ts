@@ -84,6 +84,21 @@ export class DailyCarryOverService {
    * The most recently edited page is the one that was actually worked in.
    */
   async findDailyPage(spaceId: string, title: string, withContent = false) {
+    const rows = await this.findDailyPages(spaceId, title, withContent);
+    return rows[0];
+  }
+
+  /**
+   * Every page carrying that day's name, most recently edited first.
+   *
+   * The carry-over reads all of them rather than only the newest. Two pages
+   * can share a day: clicking "new page" twice makes two, and someone can
+   * reasonably put the morning's work in one and the afternoon's in the
+   * other. Reading one and ignoring the rest would drop the other's open
+   * tasks without saying so. Duplicates are merged instead, and a task
+   * written on both is listed once.
+   */
+  async findDailyPages(spaceId: string, title: string, withContent = false) {
     let query = this.db
       .selectFrom('pages')
       .select(['id', 'title'])
@@ -95,7 +110,7 @@ export class DailyCarryOverService {
 
     if (withContent) query = query.select('content') as any;
 
-    return query.executeTakeFirst();
+    return query.execute();
   }
 
   /**
@@ -113,14 +128,17 @@ export class DailyCarryOverService {
     for (let i = 0; i < LOOKBACK_DAYS; i++) {
       cursor = previousWorkingDay(cursor, tz);
       const prevTitle = dailyTitle(cursor, tz);
-      const prev = await this.findDailyPage(spaceId, prevTitle, true);
-      if (!prev) continue;
+      const pages = await this.findDailyPages(spaceId, prevTitle, true);
+      if (!pages.length) continue;
 
-      const bySection = uncheckedTasksBySection((prev as any).content);
-      return {
-        carriedOver: bySection[sections.today] ?? [],
-        planned: bySection[sections.tomorrow] ?? [],
-      };
+      const carriedOver: string[] = [];
+      const planned: string[] = [];
+      for (const page of pages) {
+        const bySection = uncheckedTasksBySection((page as any).content);
+        carriedOver.push(...(bySection[sections.today] ?? []));
+        planned.push(...(bySection[sections.tomorrow] ?? []));
+      }
+      return { carriedOver, planned };
     }
 
     return { carriedOver: [], planned: [] };

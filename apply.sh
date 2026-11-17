@@ -31,6 +31,10 @@ cp -v "$HERE/client/src/features/page-template/"*.ts "$CLIENT/features/page-temp
 cp -v "$HERE/client/src/features/page-template/components/"*.tsx \
       "$CLIENT/features/page-template/components/"
 
+mkdir -p "$CLIENT/features/editor/extensions"
+cp -v "$HERE/client/src/features/editor/extensions/"*.ts \
+      "$CLIENT/features/editor/extensions/"
+
 echo "==> wiring it in"
 python3 - "$DOCMOST_DIR" <<'PY'
 import sys, re, pathlib
@@ -120,6 +124,21 @@ add_import(
     '  PageTemplateMenuItems,\n'
     '  PageTemplateModals,\n'
     '} from "@/features/page-template";',
+)
+
+EXTENSIONS = "apps/client/src/features/editor/extensions/extensions.ts"
+
+add_import(
+    EXTENSIONS,
+    'import { ContinuedOrderedList } from '
+    '"@/features/editor/extensions/continued-ordered-list";',
+)
+
+insert_before(
+    EXTENSIONS,
+    anchor="  TaskList,\n",
+    block="  ContinuedOrderedList,\n",
+    marker="ContinuedOrderedList,",
 )
 
 insert_before(

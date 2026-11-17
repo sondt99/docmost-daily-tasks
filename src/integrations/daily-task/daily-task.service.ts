@@ -9,6 +9,7 @@ import { InjectKysely } from 'nestjs-kysely';
 import { KyselyDB } from '@docmost/db/types/kysely.types';
 import { PageService } from '../../core/page/services/page.service';
 import { sql } from 'kysely';
+import { renderTemplateTitle } from '../../core/template/template-title';
 import {
   DailySections,
   buildDailyDoc,
@@ -23,6 +24,21 @@ import {
 
 const DEFAULT_CRON = '0 6 * * 1-5';
 const CRON_JOB_NAME = 'daily-task-page';
+
+/**
+ * Dates the two naming schemes are compared on.
+ *
+ * One date is not enough: "{mm/yyyy}" and "{date}" would look identical on
+ * no day at all, but "{dd/mm/yyyy}" and "{dd-mm-yyyy}" differ every day
+ * while two patterns can still agree by luck on a single one. Spreading the
+ * samples across days, months and years makes an accidental match unlikely.
+ */
+const SAMPLE_DAYS = [
+  new Date('2026-01-09T05:00:00Z'),
+  new Date('2026-03-31T05:00:00Z'),
+  new Date('2026-11-17T05:00:00Z'),
+  new Date('2027-12-01T05:00:00Z'),
+];
 
 function env(key: string, fallback = ''): string {
   return (process.env[key] ?? fallback).trim();
@@ -137,9 +153,26 @@ export class DailyTaskService implements OnModuleInit, OnApplicationBootstrap {
       const templateTitle = row.rows[0]?.title?.trim();
       if (!templateTitle) return;
 
-      if (templateTitle !== pattern) {
+      // Compare what the two produce, not how they are written. "{DAY}" and
+      // "{day}" are the same instruction typed differently, and warning about
+      // those teaches people to ignore the warning. What matters is whether
+      // the two name the same day the same way, so they are rendered and the
+      // results compared, over enough dates that a pair agreeing by luck
+      // today is still caught.
+      const tz = this.timeZone;
+      const disagreeing = SAMPLE_DAYS.map((day) => ({
+        fromTemplate: renderTemplateTitle(templateTitle, day, {
+          timeZone: tz,
+          locale: env('TEMPLATE_TITLE_LOCALE') || undefined,
+        }).trim(),
+        fromCron: dailyTitle(day, tz),
+      })).find((pair) => pair.fromTemplate !== pair.fromCron);
+
+      if (disagreeing) {
         this.logger.warn(
-          `The daily task space's default template is named "${templateTitle}" but DAILY_TASK_TITLE is "${pattern}". ` +
+          `The daily task space's default template names a page "${disagreeing.fromTemplate}" ` +
+            `where the cron names it "${disagreeing.fromCron}" ` +
+            `(template "${templateTitle}" vs DAILY_TASK_TITLE "${pattern}"). ` +
             `A page created by hand will not be found by the next morning's carry-over. Make the two match.`,
         );
       }
