@@ -303,6 +303,15 @@ export class DailyTaskService implements OnModuleInit, OnApplicationBootstrap {
     return { carriedOver: [], planned: [] };
   }
 
+  /**
+   * Nothing stops two pages carrying the same day's name: clicking "new page"
+   * twice makes two, and both are legitimate. A `LIMIT 1` with no order would
+   * then return whichever row Postgres reached first, which changes as rows
+   * are edited and moved. Tomorrow's carry-over would read a page at random,
+   * and reading the empty one loses a day of work with nothing in the log.
+   *
+   * The most recently edited page is the one that was actually worked in.
+   */
   private async findDailyPage(
     spaceId: string,
     title: string,
@@ -313,7 +322,9 @@ export class DailyTaskService implements OnModuleInit, OnApplicationBootstrap {
       .select(['id', 'title'])
       .where('spaceId', '=', spaceId)
       .where('title', '=', title)
-      .where('deletedAt', 'is', null);
+      .where('deletedAt', 'is', null)
+      .orderBy('updatedAt', 'desc')
+      .orderBy('createdAt', 'desc');
 
     if (withContent) query = query.select('content') as any;
 
