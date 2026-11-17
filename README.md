@@ -79,6 +79,7 @@ the two UUIDs. Everything else has a default.
 | `DAILY_TASK_SPACE_ID` | — | Space the pages are created in |
 | `DAILY_TASK_USER_ID` | — | User recorded as the page author |
 | `DAILY_TASK_PARENT_PAGE_ID` | — | Optional parent page |
+| `DAILY_TASK_TITLE` | `{date}` | Page title, taking the same date placeholders as a template title |
 | `DAILY_TASK_CRON` | `0 6 * * 1-5` | When to run |
 | `DAILY_TASK_TIMEZONE` | `Asia/Ho_Chi_Minh` | Zone for the schedule and the date in the title |
 | `DAILY_TASK_ICON` | — | Emoji for the page |
@@ -89,7 +90,15 @@ the two UUIDs. Everything else has a default.
 
 Renaming a section heading on a running instance means yesterday's page no
 longer matches, and that day's carry-over is skipped. Rename during a gap, or
-accept losing one day of carry-over.
+accept losing one day of carry-over. The same goes for `DAILY_TASK_TITLE`:
+yesterday's page is found by its title, so changing the pattern hides the
+pages already written under the old one.
+
+If the space also has a default template, give the template the **same title**
+as `DAILY_TASK_TITLE`. Then a day written by hand and a day written by the cron
+are named alike, and either can be carried forward from. When the two disagree,
+a line is written to the log on every boot saying so, because the symptom
+otherwise is only that some days quietly lose their unfinished work.
 
 ## Templates API
 

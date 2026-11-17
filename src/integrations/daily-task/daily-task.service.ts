@@ -8,6 +8,8 @@ import { Cron, SchedulerRegistry } from '@nestjs/schedule';
 import { InjectKysely } from 'nestjs-kysely';
 import { KyselyDB } from '@docmost/db/types/kysely.types';
 import { PageService } from '../../core/page/services/page.service';
+import { sql } from 'kysely';
+import { renderTemplateTitle } from '../../core/template/template-title';
 import {
   DEFAULT_SECTIONS,
   DailySections,
@@ -27,6 +29,30 @@ const CRON_JOB_NAME = 'daily-task-page';
 
 function env(key: string, fallback = ''): string {
   return (process.env[key] ?? fallback).trim();
+}
+
+/**
+ * The title of the page for one day.
+ *
+ * `DAILY_TASK_TITLE` takes the same date placeholders as a template title, so
+ * the cron and a page made by hand from the space's default template can be
+ * named the same way. That matters for more than looks: the carry-over finds
+ * yesterday's page by its title, so if the two naming schemes drift apart, a
+ * day written by hand is invisible to the next morning and its unfinished work
+ * is quietly dropped.
+ *
+ * The default, `{date}`, is the plain `YYYY-MM-DD` this used to produce.
+ */
+function dailyTitle(when: Date, tz: string): string {
+  const pattern = env('DAILY_TASK_TITLE') || '{date}';
+  const rendered = renderTemplateTitle(pattern, when, {
+    timeZone: tz,
+    locale: env('TEMPLATE_TITLE_LOCALE') || undefined,
+  }).trim();
+
+  // A pattern that renders to nothing would make every day share one blank
+  // title, and the "already exists" check would match the wrong page.
+  return rendered || formatDate(when, tz);
 }
 
 function envList(key: string): string[] {
@@ -103,6 +129,55 @@ export class DailyTaskService implements OnModuleInit, OnApplicationBootstrap {
         `Could not confirm the daily task schedule: ${(err as Error).message}`,
       );
     }
+
+    void this.warnIfTitlePatternsDisagree();
+  }
+
+  /**
+   * Says so, loudly, when the space's default template would name a page
+   * differently from the cron.
+   *
+   * Both names are configuration, set in two different places, and nothing
+   * stops them drifting. When they do, nothing breaks visibly: pages still
+   * appear, the cron still runs. What happens is that a day written by hand
+   * is named one way and looked for the next morning under the other, so its
+   * unfinished tasks are silently dropped. That is exactly the kind of fault
+   * that is only noticed weeks later, so it is worth a line in the log on
+   * every boot.
+   */
+  private async warnIfTitlePatternsDisagree(): Promise<void> {
+    const spaceId = env('DAILY_TASK_SPACE_ID');
+    if (!spaceId) return;
+
+    const pattern = env('DAILY_TASK_TITLE') || '{date}';
+
+    try {
+      const row = await sql<{ title: string | null }>`
+        SELECT t.title
+        FROM spaces s
+        JOIN templates t
+          ON t.id::text = s.settings->>'defaultTemplateId'
+         AND t.workspace_id = s.workspace_id
+         AND t.deleted_at IS NULL
+        WHERE s.id = ${spaceId}
+          AND s.deleted_at IS NULL
+        LIMIT 1
+      `.execute(this.db);
+
+      const templateTitle = row.rows[0]?.title?.trim();
+      if (!templateTitle) return;
+
+      if (templateTitle !== pattern) {
+        this.logger.warn(
+          `The daily task space's default template is named "${templateTitle}" but DAILY_TASK_TITLE is "${pattern}". ` +
+            `A page created by hand will not be found by the next morning's carry-over. Make the two match.`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Could not compare the daily title with the space template: ${(err as Error).message}`,
+      );
+    }
   }
 
   @Cron(env('DAILY_TASK_CRON', DEFAULT_CRON), {
@@ -162,7 +237,7 @@ export class DailyTaskService implements OnModuleInit, OnApplicationBootstrap {
       return { created: false, reason: 'space not found' };
     }
 
-    const title = formatDate(now, tz);
+    const title = dailyTitle(now, tz);
 
     const existing = await this.findDailyPage(spaceId, title);
     if (existing) {
@@ -214,7 +289,7 @@ export class DailyTaskService implements OnModuleInit, OnApplicationBootstrap {
 
     for (let i = 0; i < LOOKBACK_DAYS; i++) {
       cursor = previousWorkingDay(cursor, tz);
-      const prevTitle = formatDate(cursor, tz);
+      const prevTitle = dailyTitle(cursor, tz);
       const prev = await this.findDailyPage(spaceId, prevTitle, true);
       if (!prev) continue;
 
