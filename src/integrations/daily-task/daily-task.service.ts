@@ -1,5 +1,10 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import {
+  Injectable,
+  Logger,
+  OnApplicationBootstrap,
+  OnModuleInit,
+} from '@nestjs/common';
+import { Cron, SchedulerRegistry } from '@nestjs/schedule';
 import { InjectKysely } from 'nestjs-kysely';
 import { KyselyDB } from '@docmost/db/types/kysely.types';
 import { PageService } from '../../core/page/services/page.service';
@@ -18,6 +23,7 @@ const LOOKBACK_DAYS = 5;
 
 const DEFAULT_CRON = '0 6 * * 1-5';
 const DEFAULT_TZ = 'Asia/Ho_Chi_Minh';
+const CRON_JOB_NAME = 'daily-task-page';
 
 function env(key: string, fallback = ''): string {
   return (process.env[key] ?? fallback).trim();
@@ -33,12 +39,16 @@ function envList(key: string): string[] {
 }
 
 @Injectable()
-export class DailyTaskService implements OnModuleInit {
+export class DailyTaskService implements OnModuleInit, OnApplicationBootstrap {
   private readonly logger = new Logger(DailyTaskService.name);
+
+  /** Chains overlapping runs so two of them cannot both pass the exists check. */
+  private inFlight: Promise<unknown> = Promise.resolve();
 
   constructor(
     @InjectKysely() private readonly db: KyselyDB,
     private readonly pageService: PageService,
+    private readonly schedulerRegistry: SchedulerRegistry,
   ) {}
 
   private get enabled(): boolean {
@@ -73,8 +83,30 @@ export class DailyTaskService implements OnModuleInit {
     );
   }
 
+  /**
+   * Runs after every module is up, which is when the schedule explorer has
+   * finished registering jobs. Discovery depends on another module calling
+   * ScheduleModule.forRoot(), so say so out loud rather than silently never
+   * firing if that ever stops being true upstream.
+   */
+  onApplicationBootstrap() {
+    if (!this.enabled) return;
+    try {
+      const jobs = this.schedulerRegistry.getCronJobs();
+      if (!jobs.has(CRON_JOB_NAME)) {
+        this.logger.error(
+          `Daily task pages are on but the "${CRON_JOB_NAME}" job was not registered; no page will be created on schedule`,
+        );
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Could not confirm the daily task schedule: ${(err as Error).message}`,
+      );
+    }
+  }
+
   @Cron(env('DAILY_TASK_CRON', DEFAULT_CRON), {
-    name: 'daily-task-page',
+    name: CRON_JOB_NAME,
     timeZone: env('DAILY_TASK_TIMEZONE', DEFAULT_TZ),
   })
   async scheduledRun(): Promise<void> {
@@ -94,6 +126,18 @@ export class DailyTaskService implements OnModuleInit {
    * date already exists it returns the existing id and writes nothing.
    */
   async createForDate(
+    now: Date,
+  ): Promise<{ created: boolean; pageId?: string; reason?: string }> {
+    // The schedule and a hand-run can land together; without this both would
+    // read "no page yet" and insert, leaving two copies of the same day.
+    const run = this.inFlight
+      .catch(() => undefined)
+      .then(() => this.buildForDate(now));
+    this.inFlight = run.catch(() => undefined);
+    return run;
+  }
+
+  private async buildForDate(
     now: Date,
   ): Promise<{ created: boolean; pageId?: string; reason?: string }> {
     const tz = this.timeZone;
