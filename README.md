@@ -149,6 +149,7 @@ called `công việc ngày 17/11/2026`. A title you type yourself always wins.
 
 | Placeholder | Becomes |
 |---|---|
+| `{day}` | `17/11/2026`, written the way `TEMPLATE_TITLE_LOCALE` writes a date |
 | `{date}`, `{yyyy-mm-dd}` | `2026-11-17` |
 | `{dd/mm/yyyy}` | `17/11/2026` |
 | `{dd-mm-yyyy}` | `17-11-2026` |

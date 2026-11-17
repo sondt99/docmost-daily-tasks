@@ -68,12 +68,33 @@ export function renderTemplateTitle(
     }
   };
 
+  /**
+   * The date written the way the configured language writes it: 17/11/2026 in
+   * Vietnamese, 11/17/2026 in American English. The parts are asked for as
+   * numbers with a four digit year, rather than as a "short" date, because
+   * short drops the century in several languages and a page titled "17/11/26"
+   * sorts and reads badly next to one titled "17/11/2026".
+   */
+  const localDate = () => {
+    try {
+      return new Intl.DateTimeFormat(loc, {
+        timeZone: zone,
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+      }).format(now);
+    } catch {
+      return `${p.dd}/${p.mm}/${p.yyyy}`;
+    }
+  };
+
   const table: Record<string, () => string> = {
     date: () => p.iso,
     'yyyy-mm-dd': () => p.iso,
     'dd/mm/yyyy': () => `${p.dd}/${p.mm}/${p.yyyy}`,
     'dd-mm-yyyy': () => `${p.dd}-${p.mm}-${p.yyyy}`,
     'mm/yyyy': () => `${p.mm}/${p.yyyy}`,
+    day: localDate,
     yyyy: () => p.yyyy,
     mm: () => p.mm,
     dd: () => p.dd,
@@ -91,6 +112,7 @@ export function renderTemplateTitle(
 
 /** The placeholders this accepts, for documentation and error messages. */
 export const TEMPLATE_TITLE_PLACEHOLDERS = [
+  '{day}',
   '{date}',
   '{yyyy-mm-dd}',
   '{dd/mm/yyyy}',

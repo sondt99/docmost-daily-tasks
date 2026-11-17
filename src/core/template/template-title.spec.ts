@@ -35,6 +35,29 @@ describe('date placeholders in a template title', () => {
     );
   });
 
+  it('writes {day} the way the language writes a date', () => {
+    expect(
+      renderTemplateTitle('[VinSOC] công việc ngày {DAY}', midday, hcm),
+    ).toBe('[VinSOC] công việc ngày 17/11/2026');
+
+    expect(
+      renderTemplateTitle('{day}', midday, {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        locale: 'en-US',
+      }),
+    ).toBe('11/17/2026');
+  });
+
+  it('keeps the century in {day}', () => {
+    // a "short" date drops it in several languages; a page titled 17/11/26
+    // next to one titled 17/11/2026 reads and sorts badly
+    expect(renderTemplateTitle('{day}', midday, hcm)).toContain('2026');
+  });
+
+  it('reads {day} in the configured zone', () => {
+    expect(renderTemplateTitle('{day}', lateEvening, hcm)).toBe('18/11/2026');
+  });
+
   it('leaves a name it does not know exactly as typed', () => {
     // what was actually written by hand before this existed
     expect(
