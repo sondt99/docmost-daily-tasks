@@ -108,13 +108,21 @@ Access rules:
 ## Install
 
 ```bash
+git clone https://github.com/sondt99/docmost-daily-tasks.git
 git clone https://github.com/docmost/docmost.git
-cd docmost && git checkout v0.97.0
-cd .. && ./apply.sh ./docmost
-cd docmost && docker build -t docmost-local:0.97.0 .
+git -C docmost checkout v0.97.0
+
+./docmost-daily-tasks/apply.sh ./docmost     # copies the files, registers the modules
+docker build -t docmost-local:0.97.0 ./docmost
 ```
 
-Then point your compose file at the image you just built and restart.
+`apply.sh` can be run again on the same checkout without duplicating anything,
+which is what you want after pulling a newer Docmost tag.
+
+Then point your compose file at the image you just built, add
+`pull_policy: never` so Compose does not look for it on a registry, and
+restart. Your data lives in the Postgres and storage volumes, so changing the
+app image leaves it untouched — just never bring the stack down with `-v`.
 
 ## Tests
 

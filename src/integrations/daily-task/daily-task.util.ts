@@ -116,11 +116,6 @@ function collectUnchecked(node: PmNode): string[] {
   return found;
 }
 
-function escapeMarkdown(line: string): string {
-  // Keep it to the characters that would change the meaning of a list line.
-  return line.replace(/\r?\n/g, ' ').trim();
-}
-
 export type BuildDailyPageInput = {
   /** Open tasks pulled forward from the previous working day. */
   carriedOver: string[];
@@ -131,19 +126,46 @@ export type BuildDailyPageInput = {
   standing?: string[];
 };
 
+function heading(text: string) {
+  return {
+    type: 'heading',
+    attrs: { level: 2 },
+    content: [{ type: 'text', text }],
+  };
+}
+
+function taskItem(text: string) {
+  const paragraph: any = { type: 'paragraph' };
+  if (text) paragraph.content = [{ type: 'text', text }];
+  return { type: 'taskItem', attrs: { checked: false }, content: [paragraph] };
+}
+
+/** One list, with a single blank tick box when there is nothing to put in it. */
+function taskList(items: string[]) {
+  const content = items.length ? items.map(taskItem) : [taskItem('')];
+  return { type: 'taskList', content };
+}
+
+function cleanLine(line: string): string {
+  return line.replace(/\r?\n/g, ' ').trim();
+}
+
 /**
- * Builds the markdown for one day. Markdown is used rather than ProseMirror
- * JSON because the server already converts `- [ ]` into a real task list, so
- * there is no hand-built document shape to keep in sync with the editor.
+ * Builds the ProseMirror document for one day.
+ *
+ * This is assembled as JSON rather than as markdown on purpose: markdown
+ * turns a checkbox with no text after it into an ordinary bullet, so an
+ * empty section would come out as a plain list the editor does not treat as
+ * tasks, and anything typed into it the next morning would not be carried
+ * forward. Building the nodes directly keeps every section a real task list.
  */
-export function buildDailyMarkdown(input: BuildDailyPageInput): string {
+export function buildDailyDoc(input: BuildDailyPageInput): any {
   const s = input.sections ?? DEFAULT_SECTIONS;
-  const lines: string[] = [];
 
   const todayItems = [
-    ...input.planned.map(escapeMarkdown),
-    ...input.carriedOver.map(escapeMarkdown),
-    ...(input.standing ?? []).map(escapeMarkdown),
+    ...input.planned.map(cleanLine),
+    ...input.carriedOver.map(cleanLine),
+    ...(input.standing ?? []).map(cleanLine),
   ].filter(Boolean);
 
   const seen = new Set<string>();
@@ -154,23 +176,15 @@ export function buildDailyMarkdown(input: BuildDailyPageInput): string {
     return true;
   });
 
-  lines.push(`## ${s.today}`);
-  lines.push('');
-  if (deduped.length === 0) {
-    lines.push('- [ ] ');
-  } else {
-    for (const item of deduped) lines.push(`- [ ] ${item}`);
-  }
-  lines.push('');
-
-  lines.push(`## ${s.tomorrow}`);
-  lines.push('');
-  lines.push('- [ ] ');
-  lines.push('');
-
-  lines.push(`## ${s.notes}`);
-  lines.push('');
-  lines.push('');
-
-  return lines.join('\n');
+  return {
+    type: 'doc',
+    content: [
+      heading(s.today),
+      taskList(deduped),
+      heading(s.tomorrow),
+      taskList([]),
+      heading(s.notes),
+      { type: 'paragraph' },
+    ],
+  };
 }

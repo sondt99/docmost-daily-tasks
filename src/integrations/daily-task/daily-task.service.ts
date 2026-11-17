@@ -6,7 +6,7 @@ import { PageService } from '../../core/page/services/page.service';
 import {
   DEFAULT_SECTIONS,
   DailySections,
-  buildDailyMarkdown,
+  buildDailyDoc,
   formatDate,
   isWorkingDay,
   previousWorkingDay,
@@ -131,7 +131,7 @@ export class DailyTaskService implements OnModuleInit {
       tz,
     );
 
-    const markdown = buildDailyMarkdown({
+    const doc = buildDailyDoc({
       carriedOver,
       planned,
       sections: this.sections,
@@ -145,8 +145,8 @@ export class DailyTaskService implements OnModuleInit {
       icon: env('DAILY_TASK_ICON') || undefined,
       spaceId,
       parentPageId,
-      content: markdown,
-      format: 'markdown',
+      content: doc,
+      format: 'json',
     });
 
     this.logger.log(

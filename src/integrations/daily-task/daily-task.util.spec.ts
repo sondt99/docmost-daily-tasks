@@ -1,6 +1,7 @@
 import {
   DEFAULT_SECTIONS,
-  buildDailyMarkdown,
+  nodeText,
+  buildDailyDoc,
   formatDate,
   isWorkingDay,
   previousWorkingDay,
@@ -113,43 +114,69 @@ describe('carrying tasks forward', () => {
 });
 
 describe('building the day', () => {
+  const sectionsOf = (doc: any) =>
+    doc.content.filter((n: any) => n.type === 'heading').map(nodeText);
+  const listsOf = (doc: any) =>
+    doc.content.filter((n: any) => n.type === 'taskList');
+  const textsOf = (list: any) => list.content.map(nodeText);
+
   it('puts yesterday plans first, then unfinished work', () => {
-    const md = buildDailyMarkdown({
+    const doc = buildDailyDoc({
       planned: ['việc đã hẹn trước'],
       carriedOver: ['việc còn nợ'],
     });
-    const todayBlock = md.split('##')[1];
-    expect(todayBlock.indexOf('việc đã hẹn trước')).toBeLessThan(
-      todayBlock.indexOf('việc còn nợ'),
-    );
+    expect(textsOf(listsOf(doc)[0])).toEqual([
+      'việc đã hẹn trước',
+      'việc còn nợ',
+    ]);
   });
 
-  it('writes task lines markdown turns into checkboxes', () => {
-    const md = buildDailyMarkdown({ planned: ['abc'], carriedOver: [] });
-    expect(md).toContain('- [ ] abc');
+  it('writes real task items, not bullets', () => {
+    const doc = buildDailyDoc({ planned: ['abc'], carriedOver: [] });
+    const first = listsOf(doc)[0];
+    expect(first.type).toBe('taskList');
+    expect(first.content[0].type).toBe('taskItem');
+    expect(first.content[0].attrs.checked).toBe(false);
+  });
+
+  it('leaves a blank tick box in an empty section rather than a bullet', () => {
+    // A markdown "- [ ]" with nothing after it parses as an ordinary list, so
+    // an empty section built that way could not be carried forward.
+    const doc = buildDailyDoc({ planned: [], carriedOver: [] });
+    for (const list of listsOf(doc)) {
+      expect(list.type).toBe('taskList');
+      expect(list.content.length).toBeGreaterThan(0);
+      expect(list.content[0].type).toBe('taskItem');
+    }
+    expect(textsOf(listsOf(doc)[1])).toEqual(['']);
   });
 
   it('drops an item repeated in both lists', () => {
-    const md = buildDailyMarkdown({
-      planned: ['Trùng'],
-      carriedOver: ['trùng'],
-    });
-    expect(md.match(/- \[ \] Trùng/gi)?.length).toBe(1);
+    const doc = buildDailyDoc({ planned: ['Trùng'], carriedOver: ['trùng'] });
+    expect(textsOf(listsOf(doc)[0])).toEqual(['Trùng']);
   });
 
   it('always leaves all three sections present', () => {
-    const md = buildDailyMarkdown({ planned: [], carriedOver: [] });
-    expect(md).toContain(`## ${DEFAULT_SECTIONS.today}`);
-    expect(md).toContain(`## ${DEFAULT_SECTIONS.tomorrow}`);
-    expect(md).toContain(`## ${DEFAULT_SECTIONS.notes}`);
+    const doc = buildDailyDoc({ planned: [], carriedOver: [] });
+    expect(sectionsOf(doc)).toEqual([
+      DEFAULT_SECTIONS.today,
+      DEFAULT_SECTIONS.tomorrow,
+      DEFAULT_SECTIONS.notes,
+    ]);
   });
 
   it('appends standing items to every day', () => {
-    const md = buildDailyMarkdown({
+    const doc = buildDailyDoc({
       planned: [],
       carriedOver: [],
       standing: ['Đọc mail'],
     });
-    expect(md).toContain('- [ ] Đọc mail');
+    expect(textsOf(listsOf(doc)[0])).toContain('Đọc mail');
+  });
+
+  it('round-trips through the carry-over reader', () => {
+    const doc = buildDailyDoc({ planned: ['a'], carriedOver: ['b'] });
+    const back = uncheckedTasksBySection(doc);
+    expect(back[DEFAULT_SECTIONS.today]).toEqual(['a', 'b']);
   });
 });
