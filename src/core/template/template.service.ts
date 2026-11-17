@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -16,9 +17,12 @@ import {
 } from '../casl/interfaces/space-ability.type';
 import {
   CreateTemplateDto,
+  CreateTemplateFromPageDto,
+  SetSpaceDefaultTemplateDto,
   UpdateTemplateDto,
   UseTemplateDto,
 } from './dto/template.dto';
+import { SpaceDefaultTemplateService } from './space-default-template.service';
 
 /**
  * Templates for the community edition.
@@ -36,6 +40,7 @@ export class TemplateService {
     private readonly spaceMemberRepo: SpaceMemberRepo,
     private readonly pageService: PageService,
     private readonly spaceAbility: SpaceAbilityFactory,
+    private readonly spaceDefaultTemplate: SpaceDefaultTemplateService,
   ) {}
 
   async list(
@@ -182,6 +187,133 @@ export class TemplateService {
       content: (template as any).content ?? undefined,
       format: 'json',
     });
+  }
+
+  /**
+   * Saves an existing page as a template, optionally making it the space's
+   * default in the same call. Writing the page first and saving it second is
+   * the only way to author a template here, so the two halves of "set this up
+   * for my space" stay a single click.
+   */
+  async createFromPage(
+    dto: CreateTemplateFromPageDto,
+    user: User,
+    workspace: Workspace,
+  ): Promise<Template> {
+    const page = await this.pageService.findById(dto.pageId, true);
+
+    if (!page || page.deletedAt || page.workspaceId !== workspace.id) {
+      throw new NotFoundException('Page not found');
+    }
+
+    await this.assertSpace(
+      user,
+      page.spaceId,
+      SpaceCaslAction.Edit,
+      'You cannot create templates in this space',
+    );
+
+    // Checked up front rather than after the insert, so that a member who may
+    // write pages but not change space settings gets a plain refusal instead
+    // of a stray template plus an error.
+    if (dto.setAsSpaceDefault) {
+      const ability = await this.spaceAbility.createForUser(user, page.spaceId);
+      if (ability.cannot(SpaceCaslAction.Manage, SpaceCaslSubject.Settings)) {
+        throw new ForbiddenException(
+          'You cannot change the settings of this space',
+        );
+      }
+    }
+
+    const template = await this.create(
+      {
+        title: dto.title?.trim() || page.title || 'Untitled template',
+        description: dto.description,
+        icon: page.icon ?? undefined,
+        spaceId: page.spaceId,
+        content: (page as any).content ?? null,
+      },
+      user,
+      workspace,
+    );
+
+    if (dto.setAsSpaceDefault) {
+      await this.setSpaceDefault(
+        { spaceId: page.spaceId, templateId: template.id },
+        user,
+        workspace,
+      );
+    }
+
+    return template;
+  }
+
+  /** The space's default template, or null when it has none. */
+  async getSpaceDefault(
+    spaceId: string,
+    user: User,
+    workspace: Workspace,
+  ): Promise<Template | null> {
+    await this.assertSpace(
+      user,
+      spaceId,
+      SpaceCaslAction.Read,
+      'You do not have access to this space',
+    );
+
+    const templateId = await this.spaceDefaultTemplate.get(
+      spaceId,
+      workspace.id,
+    );
+    if (!templateId) return null;
+
+    try {
+      return await this.findOne(templateId, user, workspace);
+    } catch {
+      // The template was deleted after being set as the default.
+      return null;
+    }
+  }
+
+  /**
+   * Points a space at a default template, or clears it with a null id.
+   *
+   * Changing this changes what every member of the space gets when they create
+   * a page, so it needs more than page-edit rights: it is a space setting and
+   * is gated as one.
+   */
+  async setSpaceDefault(
+    dto: SetSpaceDefaultTemplateDto,
+    user: User,
+    workspace: Workspace,
+  ): Promise<Template | null> {
+    const ability = await this.spaceAbility.createForUser(user, dto.spaceId);
+    if (ability.cannot(SpaceCaslAction.Manage, SpaceCaslSubject.Settings)) {
+      throw new ForbiddenException(
+        'You cannot change the settings of this space',
+      );
+    }
+
+    if (!dto.templateId) {
+      await this.spaceDefaultTemplate.set(dto.spaceId, workspace.id, null);
+      return null;
+    }
+
+    const template = await this.findOne(dto.templateId, user, workspace);
+
+    if (template.spaceId && template.spaceId !== dto.spaceId) {
+      throw new BadRequestException(
+        'That template belongs to a different space',
+      );
+    }
+
+    await this.spaceDefaultTemplate.set(
+      dto.spaceId,
+      workspace.id,
+      template.id,
+    );
+
+    return template;
   }
 
   private async assertCanWrite(template: Template, user: User): Promise<void> {

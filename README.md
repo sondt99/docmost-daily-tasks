@@ -1,18 +1,21 @@
 # docmost-daily-tasks
 
-Two additions to a self-hosted [Docmost](https://github.com/docmost/docmost)
+Three additions to a self-hosted [Docmost](https://github.com/docmost/docmost)
 community edition server:
 
 1. **A templates API.** Docmost ships the `templates` table, its repository and
    its front-end, but the controller and service that join them live in the
    closed enterprise submodule, so `POST /api/templates` answers `404` on a
    community build. This re-implements that layer from scratch.
-2. **Daily task pages.** On every working day a page is created in a space of
+2. **Templates you can actually reach**, including a per-space default that
+   fills every new page in that space. Two entries in a page's `...` menu, and
+   no licence check in front of them.
+3. **Daily task pages.** On every working day a page is created in a space of
    your choosing, carrying yesterday's unfinished work forward.
 
 Nothing here is copied from the enterprise edition. The server code was written
 against the public API contract in `apps/client/src/ee/template/services`, which
-is what the shipped front-end calls.
+is what the shipped front-end calls; the interface is this repository's own.
 
 ## Daily task pages
 
@@ -97,6 +100,9 @@ Six endpoints, matching what the bundled front-end expects:
 | `POST /api/templates/update` | `{ templateId, ... }` | updated template |
 | `POST /api/templates/delete` | `{ templateId }` | — |
 | `POST /api/templates/use` | `{ templateId, spaceId, parentPageId? }` | the new page |
+| `POST /api/templates/create-from-page` | `{ pageId, title?, description?, setAsSpaceDefault? }` | created template |
+| `POST /api/templates/space-default` | `{ spaceId }` | the space's default template, or `null` |
+| `POST /api/templates/set-space-default` | `{ spaceId, templateId }` | the new default; `templateId: null` clears it |
 
 Access rules:
 
@@ -104,6 +110,48 @@ Access rules:
   view or use it, `Edit` to create, change or delete it.
 - A template with no space is workspace-wide: any member may view and use it,
   only its creator may change or delete it.
+- Choosing a space's default template is a space **setting**, not a page edit:
+  it changes what every member of that space gets when they create a page, so
+  it needs the right to manage the space.
+
+## Templates in the interface
+
+Open any page's `...` menu:
+
+- **Save as template** copies that page's current content into a reusable
+  template in its space. The dialog offers a tick box, *Use it for every new
+  page in this space*, which also makes it the space's default.
+- **Insert from template** lists the space's templates. Clicking one drops it
+  into the page you are on: into an empty page it lands whole, into a page with
+  text it lands at the cursor. Each row also has a star, which sets or clears
+  the space default, and a bin.
+
+### What "default" does
+
+Once a space has a default template, creating a page there opens it already
+filled in. There is no second click and no picker.
+
+It works by filling in the request that the new-page button already sends,
+before the page is written, so Docmost builds the collaborative document from
+the template the same way it would from any other content. That matters: a
+template applied *after* the page exists would race the editor session that is
+already opening, and lose.
+
+Details worth knowing:
+
+- **Only genuinely blank pages are filled.** Anything that arrives carrying its
+  own content is left alone: an import, a duplicate, a page made deliberately
+  from another template, the daily task pages below.
+- **Sub-pages are filled too.** A default is a property of the space, not of
+  the top level.
+- **The title is never touched**, only the body, so a new page still opens with
+  an empty title waiting for you.
+- **A deleted template degrades to blank.** If the default is deleted, or the
+  lookup fails for any reason, you get an ordinary empty page and a line in the
+  server log. A failed click is never the outcome.
+- **No migration.** The chosen template's id is stored in the existing
+  `spaces.settings` jsonb column, merged in rather than overwriting, so a later
+  Docmost release carries it along untouched.
 
 ## Install
 
@@ -126,10 +174,11 @@ app image leaves it untouched — just never bring the stack down with `-v`.
 
 ## Tests
 
-The date arithmetic and carry-over rules are covered by unit tests:
+The date arithmetic, the carry-over rules and the decision of which requests
+get filled from a template are covered by unit tests:
 
 ```bash
-cd docmost/apps/server && npx jest src/integrations/daily-task
+cd docmost/apps/server && npx jest src/integrations/daily-task src/core/template
 ```
 
 ## A note on the enterprise front-end
@@ -140,9 +189,14 @@ Docmost Enterprise License, which states the files "may only be used in
 production" by subscribers.
 
 That interface is compiled into the stock Docker image whether or not the API
-behind it answers. Giving it a working backend makes it usable, and whether you
-may use it in production is between you and that licence — read it before you
-rely on those buttons.
+behind it answers, and it stays switched off: it is gated behind a licence
+feature flag that a community build never sets. This repository leaves that
+gate shut and ships its own interface instead, under `features/page-template`,
+so nothing here depends on the enterprise files.
+
+If you would rather unlock Docmost's own template interface, that is a
+one-line change to the entitlement endpoint — and a licence question, not a
+technical one. Read the licence before making it.
 
 The daily task pages do not touch that interface at all. They create ordinary
 pages through the ordinary page service, so that half of this repository is

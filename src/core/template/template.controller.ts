@@ -9,7 +9,10 @@ import {
 import { TemplateService } from './template.service';
 import {
   CreateTemplateDto,
+  CreateTemplateFromPageDto,
   ListTemplatesDto,
+  SetSpaceDefaultTemplateDto,
+  SpaceIdDto,
   TemplateIdDto,
   UpdateTemplateDto,
   UseTemplateDto,
@@ -86,5 +89,35 @@ export class TemplateController {
     @AuthWorkspace() workspace: Workspace,
   ) {
     return this.templateService.use(dto, user, workspace);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('create-from-page')
+  async createFromPage(
+    @Body() dto: CreateTemplateFromPageDto,
+    @AuthUser() user: User,
+    @AuthWorkspace() workspace: Workspace,
+  ) {
+    return this.templateService.createFromPage(dto, user, workspace);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('space-default')
+  async spaceDefault(
+    @Body() dto: SpaceIdDto,
+    @AuthUser() user: User,
+    @AuthWorkspace() workspace: Workspace,
+  ) {
+    return this.templateService.getSpaceDefault(dto.spaceId, user, workspace);
+  }
+
+  @HttpCode(HttpStatus.OK)
+  @Post('set-space-default')
+  async setSpaceDefault(
+    @Body() dto: SetSpaceDefaultTemplateDto,
+    @AuthUser() user: User,
+    @AuthWorkspace() workspace: Workspace,
+  ) {
+    return this.templateService.setSpaceDefault(dto, user, workspace);
   }
 }
