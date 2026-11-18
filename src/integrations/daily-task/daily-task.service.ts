@@ -14,6 +14,7 @@ import {
   DailySections,
   buildDailyDoc,
   isWorkingDay,
+  topLevelHeadings,
 } from './daily-task.util';
 import {
   DEFAULT_TZ,
@@ -138,8 +139,8 @@ export class DailyTaskService implements OnModuleInit, OnApplicationBootstrap {
     const pattern = env('DAILY_TASK_TITLE') || '{date}';
 
     try {
-      const row = await sql<{ title: string | null }>`
-        SELECT t.title
+      const row = await sql<{ title: string | null; content: any }>`
+        SELECT t.title, t.content
         FROM spaces s
         JOIN templates t
           ON t.id::text = s.settings->>'defaultTemplateId'
@@ -149,6 +150,8 @@ export class DailyTaskService implements OnModuleInit, OnApplicationBootstrap {
           AND s.deleted_at IS NULL
         LIMIT 1
       `.execute(this.db);
+
+      this.warnIfSectionsMissing(row.rows[0]?.content);
 
       const templateTitle = row.rows[0]?.title?.trim();
       if (!templateTitle) return;
@@ -179,6 +182,34 @@ export class DailyTaskService implements OnModuleInit, OnApplicationBootstrap {
     } catch (err) {
       this.logger.warn(
         `Could not compare the daily title with the space template: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * Says so when the space's default template is missing a section the cron
+   * fills in.
+   *
+   * Same class of fault as a drifting title, and just as quiet: a page made
+   * by hand is filled by matching headings by name, so a heading renamed in
+   * the template is simply never filled. Nothing errors, the page just comes
+   * out short, and the person who renamed it has long since forgotten.
+   */
+  private warnIfSectionsMissing(content: any): void {
+    const headings = new Set(topLevelHeadings(content));
+    if (!headings.size) return;
+
+    const sections = this.sections;
+    const missing = [
+      { name: sections.today, fills: 'the day\'s tasks' },
+      { name: sections.detail, fills: 'the numbered write-up' },
+    ].filter((s) => s.name && !headings.has(s.name));
+
+    for (const section of missing) {
+      this.logger.warn(
+        `The daily task space's default template has no "${section.name}" ` +
+          `heading, so a page made by hand will not get ${section.fills}. ` +
+          `Its headings are: ${[...headings].join(', ')}.`,
       );
     }
   }

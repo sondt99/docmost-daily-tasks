@@ -91,7 +91,7 @@ export class SpaceDefaultTemplateInterceptor implements NestInterceptor {
     const items = mergeDailyItems({ carriedOver, planned });
     if (!items.length) return content;
 
-    const filled = fillTemplateWithCarryOver(content, items, sections.today);
+    const filled = fillTemplateWithCarryOver(content, items, sections);
     if (filled === content) {
       this.logger.warn(
         `The default template for space ${spaceId} has no "${sections.today}" ` +

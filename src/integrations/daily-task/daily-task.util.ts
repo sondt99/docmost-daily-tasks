@@ -7,13 +7,21 @@
 export type DailySections = {
   today: string;
   tomorrow: string;
-  notes: string;
+  /**
+   * Where the day is written up in full.
+   *
+   * This used to be a free "Ghi chú" box and was almost always empty: a blank
+   * page under a heading asks the writer to start from nothing. It is now the
+   * same list of today's tasks again, numbered, so each one already has a
+   * place to be written out underneath it.
+   */
+  detail: string;
 };
 
 export const DEFAULT_SECTIONS: DailySections = {
   today: 'Task hôm nay',
   tomorrow: 'Dự kiến hôm sau',
-  notes: 'Ghi chú',
+  detail: 'Nội dung chi tiết',
 };
 
 /** Monday..Friday are working days; Saturday and Sunday are skipped. */
@@ -108,6 +116,14 @@ function headingText(node: PmNode): string | null {
   return nodeText(node).trim();
 }
 
+/** The text of every top-level heading, in the order they appear. */
+export function topLevelHeadings(doc: PmNode): string[] {
+  if (!doc || !Array.isArray(doc.content)) return [];
+  return doc.content
+    .map((node) => headingText(node))
+    .filter((text): text is string => !!text);
+}
+
 /**
  * Walks a ProseMirror document and returns the unchecked task item texts
  * found under each top-level heading. Task lists that appear before any
@@ -184,6 +200,28 @@ function taskList(items: string[]) {
   return { type: 'taskList', content };
 }
 
+function listItem(text: string) {
+  const paragraph: any = { type: 'paragraph' };
+  if (text) paragraph.content = [{ type: 'text', text }];
+  return { type: 'listItem', content: [paragraph] };
+}
+
+/**
+ * Today's tasks again, numbered, as the place to write each one up.
+ *
+ * A numbered list rather than tick boxes on purpose: the ticking happens once,
+ * at the top of the page, and a second set of boxes would be a second record
+ * of what is done, free to disagree with the first. Numbers only name the
+ * task so there is a heading to write underneath.
+ */
+function detailList(items: string[]) {
+  return {
+    type: 'orderedList',
+    attrs: { start: 1 },
+    content: items.map(listItem),
+  };
+}
+
 function cleanLine(line: string): string {
   return line.replace(/\r?\n/g, ' ').trim();
 }
@@ -213,72 +251,93 @@ export function mergeDailyItems(input: BuildDailyPageInput): string[] {
 }
 
 /**
+ * Puts a generated list into one named section of a document.
+ *
+ * Returns null when the document has no heading by that name, which the
+ * caller reads as "this template did not ask for any of this".
+ *
+ * A list already sitting in the section is replaced where it stands, so a
+ * template that lays out its own order keeps it. A section without one gets
+ * the list directly under its heading, which is where a day built by the
+ * cron has it.
+ */
+function fillSection(
+  doc: PmNode,
+  wanted: string,
+  listType: string,
+  build: () => PmNode,
+): PmNode | null {
+  if (!doc || !Array.isArray(doc.content)) return null;
+
+  const nodes = doc.content;
+  const start = nodes.findIndex((n) => headingText(n) === wanted);
+  if (start < 0) return null;
+
+  // The section runs to the next heading, or to the end of the document.
+  let end = nodes.length;
+  for (let i = start + 1; i < nodes.length; i++) {
+    if (headingText(nodes[i]) !== null) {
+      end = i;
+      break;
+    }
+  }
+
+  let at = -1;
+  for (let i = start + 1; i < end; i++) {
+    if (nodes[i]?.type === listType) {
+      at = i;
+      break;
+    }
+  }
+
+  const content = [...nodes];
+  if (at >= 0) content[at] = build();
+  else content.splice(start + 1, 0, build());
+
+  return { ...doc, content };
+}
+
+/**
  * Pours a day's open work into a template document.
  *
  * The cron builds its page from scratch; a page made by hand is built from
  * the space's default template, and that template is the user's to shape. So
  * rather than discarding it and substituting the cron's layout, this finds
- * the template's own "today" section and fills its task list. Everything
- * else in the template is left exactly as written.
+ * the template's own sections by name and fills them. Everything else in the
+ * template is left exactly as written.
  *
  * The document is rebuilt rather than edited in place: the caller's template
  * is shared state read from the database, and mutating it would leak one
  * page's tasks into the next page made from the same template.
  *
  * Returns the document unchanged when there is nothing to add, or when the
- * template has no section by that name. A template that does not mention
- * today has not opted into any of this, and quietly rearranging it would be
- * the wrong kind of helpful.
+ * template has no "today" section. A template that does not mention today has
+ * not opted into any of this, and quietly rearranging it would be the wrong
+ * kind of helpful. The write-up section is filled when it is there and
+ * skipped without complaint when it is not, since a day is still a day
+ * without one.
  */
 export function fillTemplateWithCarryOver(
   doc: PmNode,
   items: string[],
-  todayHeading: string,
+  sections: { today: string; detail?: string },
 ): PmNode {
   if (!items.length) return doc;
   if (!doc || !Array.isArray(doc.content)) return doc;
 
-  const wanted = todayHeading.trim();
-  if (!wanted) return doc;
+  const today = sections.today?.trim();
+  if (!today) return doc;
 
-  const out: PmNode[] = [];
-  let section: 'before' | 'inside' | 'done' = 'before';
-  let filled = false;
+  const withTasks = fillSection(doc, today, 'taskList', () => taskList(items));
+  if (!withTasks) return doc;
 
-  for (const node of doc.content) {
-    const heading = headingText(node);
+  const detail = sections.detail?.trim();
+  if (!detail) return withTasks;
 
-    if (section === 'inside' && heading !== null) {
-      // The section ended without a task list of its own; give it one.
-      if (!filled) {
-        out.push(taskList(items));
-        filled = true;
-      }
-      section = 'done';
-    }
-
-    if (section === 'inside' && !filled && node?.type === 'taskList') {
-      out.push(taskList(items));
-      filled = true;
-      section = 'done';
-      continue;
-    }
-
-    out.push(node);
-
-    if (section === 'before' && heading !== null && heading === wanted) {
-      section = 'inside';
-    }
-  }
-
-  // The section was the last thing in the document.
-  if (section === 'inside' && !filled) {
-    out.push(taskList(items));
-    filled = true;
-  }
-
-  if (!filled) return doc;
-  return { ...doc, content: out };
+  return (
+    fillSection(withTasks, detail, 'orderedList', () => detailList(items)) ??
+    withTasks
+  );
 }
 
 /**
@@ -301,7 +360,10 @@ export function buildDailyDoc(input: BuildDailyPageInput): any {
       taskList(deduped),
       heading(s.tomorrow),
       taskList([]),
-      heading(s.notes),
+      heading(s.detail),
+      // Nothing to write up on a day that starts with nothing on it; an
+      // empty "1." under the heading would only be something to delete.
+      ...(deduped.length ? [detailList(deduped)] : []),
       { type: 'paragraph' },
     ],
   };

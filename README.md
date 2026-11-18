@@ -30,7 +30,9 @@ in the space you nominate:
 ## Dự kiến hôm sau
 - [ ]
 
-## Ghi chú
+## Nội dung chi tiết
+1. whatever yesterday planned for today
+2. whatever yesterday left unticked
 ```
 
 The rules:
@@ -43,6 +45,14 @@ The rules:
 - **A task keeps its own words.** An explanation written under a task travels
   with it, separated by a space rather than run together, and a parent task
   never swallows the text of the sub-tasks beneath it.
+- **The write-up section lists the same tasks, numbered.** The day's work is
+  repeated under the last heading as a numbered list, so each task already has
+  a place to be written out underneath it instead of a blank box. They are
+  numbers, not tick boxes: the ticking happens once, at the top of the page,
+  and a second set of boxes would be a second record of what is done, free to
+  disagree with the first. Nothing is read back from that section, so a task
+  named there is never carried forward twice. A day that starts with nothing
+  on it gets the heading and no list.
 - **Yesterday's plan lands first.** What the previous day wrote under
   *Dự kiến hôm sau* goes to the top of today's list, then the leftovers.
 - **Duplicates collapse.** An item that is both planned and unfinished appears
@@ -85,7 +95,7 @@ the two UUIDs. Everything else has a default.
 | `DAILY_TASK_ICON` | — | Emoji for the page |
 | `DAILY_TASK_SECTION_TODAY` | `Task hôm nay` | Heading for today's list |
 | `DAILY_TASK_SECTION_TOMORROW` | `Dự kiến hôm sau` | Heading for tomorrow's plan |
-| `DAILY_TASK_SECTION_NOTES` | `Ghi chú` | Heading for free notes |
+| `DAILY_TASK_SECTION_DETAIL` | `Nội dung chi tiết` | Heading for the write-up (`DAILY_TASK_SECTION_NOTES` still works) |
 | `DAILY_TASK_STANDING_ITEMS` | — | Fixed lines added every day, separated by `\|` |
 
 Renaming a section heading on a running instance means yesterday's page no

@@ -47,7 +47,12 @@ export function dailySections(): DailySections {
   return {
     today: env('DAILY_TASK_SECTION_TODAY', DEFAULT_SECTIONS.today),
     tomorrow: env('DAILY_TASK_SECTION_TOMORROW', DEFAULT_SECTIONS.tomorrow),
-    notes: env('DAILY_TASK_SECTION_NOTES', DEFAULT_SECTIONS.notes),
+    // DAILY_TASK_SECTION_NOTES is the name this setting had when the section
+    // was a blank "Ghi chú" box. An installation that set it keeps working.
+    detail: env(
+      'DAILY_TASK_SECTION_DETAIL',
+      env('DAILY_TASK_SECTION_NOTES', DEFAULT_SECTIONS.detail),
+    ),
   };
 }
 
